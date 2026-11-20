@@ -1,0 +1,23 @@
+[package]
+name = "filmbox"
+version = "0.2.0"
+edition = "2021"
+description = "纯 Rust 影视站：豆瓣首页 + QuickJS 动态脚本源，内置网页面板"
+
+[dependencies]
+axum = { version = "0.8", features = ["multipart"] }
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+base64 = "0.22"
+urlencoding = "2"
+anyhow = "1"
+futures = "0.3"
+rquickjs = { version = "0.14", features = ["full-async", "parallel"] }
+
+[profile.release]
+opt-level = 2
+strip = true
+panic = "abort"
+debug = false
