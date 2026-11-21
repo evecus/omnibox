@@ -48,6 +48,11 @@ nav a.active { color: var(--accent); background: var(--bg3); border-color: var(-
   background: var(--accent); color: #1a1a1a; font-weight: 600; font-size: 14px;
 }
 .search-box button:hover { filter: brightness(1.1); }
+.search-box button.source-btn {
+  background: transparent; color: var(--accent);
+  border: 1px solid var(--accent); white-space: nowrap;
+}
+.search-box button.source-btn:hover { background: var(--bg3); filter: none; }
 
 main { max-width: 1400px; margin: 0 auto; padding: 20px 24px 60px; }
 
@@ -165,7 +170,9 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px 24px 60px; }
   .logo { font-size: 18px; }
   .logo span { display: none; }
   .search-box { margin-left: 0; width: 100%; }
-  .search-box input { flex: 1; width: auto; }
+  .search-box input { flex: 1; width: auto; min-width: 0; }
+  .search-box button { padding: 7px 12px; }
+  .search-box button.source-btn { padding: 7px 10px; }
   nav { order: 3; width: 100%; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; scrollbar-width: none; }
   nav::-webkit-scrollbar { display: none; }
   nav a { flex: 0 0 auto; padding: 6px 12px; font-size: 13px; }
