@@ -2,7 +2,7 @@
 // 影视源不再是 Rust 内置实现，而是 registry 中登记的 OmniBox 格式 JS 脚本，
 // 由 spider.rs 的 QuickJS 运行时执行，本模块统一归一化输出给前端。
 
-use crate::{registry, spider};
+use crate::{node, registry, spider};
 use base64::Engine as _;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -20,6 +20,19 @@ fn label(src: &str) -> String {
         Some(m) if !m.display_name.is_empty() => m.display_name,
         Some(m) if !m.name.is_empty() => m.name,
         _ => src.to_string(),
+    }
+}
+
+/// 按脚本 runtime 分流到 QuickJS 或 Node 运行时。
+/// src 为脚本 id；method 为 home/category/search/detail/play。
+pub async fn dispatch(src: &str, method: &str, params: serde_json::Value) -> anyhow::Result<Value> {
+    let runtime = registry::get(src)
+        .map(|m| m.runtime.clone())
+        .unwrap_or_else(|| "quickjs".into());
+    if runtime == "node" {
+        node::call_script(src, method, params).await
+    } else {
+        spider::call_script(src, method, params).await
     }
 }
 
@@ -177,8 +190,8 @@ pub async fn unified_search(src: &str, wd: &str, page: i64) -> Value {
         let params = json!({"keyword": wd, "wd": wd, "page": page});
         futures.push(async move {
             let res = tokio::time::timeout(
-                Duration::from_secs(20),
-                spider::call_script(&id, "search", params),
+                Duration::from_secs(35),
+                dispatch(&id, "search", params),
             )
             .await;
             (id, res)
@@ -220,8 +233,8 @@ pub async fn detail(src: &str, id: &str) -> Value {
     }
     let params = json!({"videoId": id, "id": id});
     let res = tokio::time::timeout(
-        Duration::from_secs(25),
-        spider::call_script(src, "detail", params),
+        Duration::from_secs(35),
+        dispatch(src, "detail", params),
     )
     .await;
     match res {
@@ -262,8 +275,8 @@ pub async fn play(src: &str, q: &str) -> Value {
     }
     let params = json!({"playId": play_id, "flag": flag});
     let res = tokio::time::timeout(
-        Duration::from_secs(20),
-        spider::call_script(src, "play", params),
+        Duration::from_secs(35),
+        dispatch(src, "play", params),
     )
     .await;
     match res {

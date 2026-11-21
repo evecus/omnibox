@@ -1,23 +1,37 @@
-# FilmBox — 豆瓣推荐 + QuickJS 动态影视源
+# FilmBox — 豆瓣推荐 + 双引擎动态影视源
 
-豆瓣做首页推荐与分类筛选，**影视源全部由 QuickJS 运行用户导入的 OmniBox 格式脚本**提供。单二进制、零 Node.js / Python 依赖，内置网页面板。
+豆瓣做首页推荐与分类筛选，影视源全部由用户导入的 **OmniBox 格式脚本**提供，支持两种运行时：
 
-> 本项目不内置任何影视爬虫脚本。脚本需用户自行上传或输入 URL 拉取，保存在本机 `data/spiders/`。请遵守当地法律法规，仅用于学习研究。
+- **QuickJS**（默认）：Rust 内嵌、单二进制、零外部依赖、每次调用独立隔离，适合普通 JSON/API 采集源（如意、乌云等）。
+- **Node.js**（可选增强）：常驻子进程执行，提供原生 `crypto`（AES/RSA/md5）、`https/http`、`Buffer`，用于 QuickJS 无法覆盖的加密协议源（如瓜子 APP）。**需服务端安装 Node.js 18+**。
+
+> 本项目不内置任何影视爬虫脚本。脚本由用户自行上传、粘贴源码或 URL 拉取，保存在本机 `data/spiders/`。请遵守当地法律法规，仅用于学习研究。
+
+## 运行时选择
+
+在 `/spiders.html` 导入时选择引擎，导入后也可在每张脚本卡片上用「切到 Node / 切到 QuickJS」单独切换。
+
+| 脚本类型 | 推荐引擎 | 说明 |
+|---|---|---|
+| 纯 JSON/API 采集（如意资源、乌云影视、MacCMS 站） | QuickJS | 轻量、隔离好、无需 Node |
+| 需 `crypto.createCipheriv` / `publicEncrypt` / `privateDecrypt`（瓜子 APP 等 AES/RSA 签名协议） | **Node.js** | QuickJS 兼容层只有 md5/randomBytes stub，AES/RSA 无法运行 |
+
+> 判断依据：脚本若调用 AES/RSA 加解密做接口签名，必须选 Node.js。`/api/health` 的 `engines.node` 字段显示 Node 是否可用。
 
 ## 架构
 
 ```
-浏览器  →  axum(Rust)  →  QuickJS 运行时（每次调用独立隔离）
+浏览器  →  axum(Rust)
             ├─ douban.rs   豆瓣首页/分类（保留）
             ├─ proxy.rs    图片/视频流代理（保留）
-            ├─ registry.rs 脚本注册与存储
+            ├─ registry.rs 脚本注册/存储（含 runtime 字段）
+            ├─ vod.rs      按 runtime 分流 + 结果归一化
             ├─ spider.rs   QuickJS + OmniBox SDK 兼容层
-            └─ vod.rs      调度 + 结果归一化
+            └─ node.rs     Node 子进程运行时（stdio NDJSON 双向 RPC）
+                            └─ static/runner.js（SDK shim，网络桥接回 Rust）
 ```
 
-- **不内置影视源**：瓜子/如意/热播/荐片的 Rust 实现已全部移除。
-- **脚本来源**：网页管理页上传 `.js` 或输入公网 URL 拉取。
-- **SDK 兼容层**：`OmniBox.request/log/cache`、`axios`、`Buffer(base64url)`、`process.env` 等已实现；刮削/嗅探/弹幕等 OmniBox 专有能力 stub 为空（不影响搜索/详情/播放）。
+两条执行链路共用同一套 `OmniBox.request` 安全边界（仅 http/https、拦内网、响应体限 5MB）。Node 运行时为常驻单进程，脚本方法通过 `{t:"call", id, file, method, params}` 调度，脚本内的网络请求经 `{t:"http_req", id}` 桥接回 Rust 发出，再以 `{t:"http_resp", id}` 回传；进程崩溃/调用超时（30s）会自动重启。
 
 ## 快速开始
 
@@ -28,9 +42,12 @@ PORT=8021 ./target/release/filmbox
 
 浏览器打开 `http://127.0.0.1:8021`
 
-1. 打开 `/spiders.html` 导入脚本（上传或 URL 拉取）。
-2. 回到首页 `/`（豆瓣推荐），或 `/search.html?q=片名` 搜索。
-3. 手机浏览器可「添加到主屏幕」安装为 PWA。
+1. 打开 `/spiders.html`，先选引擎，再三种方式之一导入：
+   - **上传文件**：选择本地 `.js`；
+   - **粘贴源码**：把 `.js` 内容整段粘贴（手机端最稳）；
+   - **URL 拉取**：填公网 raw 地址（如 GitHub raw）。
+2. 加密源（如瓜子）选 **Node.js**；普通源用默认 QuickJS。点「测试」验证。
+3. 回到首页 `/`（豆瓣推荐），或 `/search.html?q=片名` 搜索；手机可「添加到主屏幕」安装为 PWA。
 
 ## 脚本格式
 
@@ -51,7 +68,9 @@ module.exports = {
 - `detail` 入参：`{ videoId, id }`
 - `play` 入参：`{ playId, flag }`（`flag` 为脚本 id）
 
-兼容层提供的 require 模块：`omnibox_sdk`、`spider_runner`、`axios`；全局 `Buffer`、`process.env`、`console`。`cheerio` 等第一版不支持，请优先使用纯 JSON/API 类脚本。
+**QuickJS 兼容层**提供：`omnibox_sdk`、`spider_runner`、`axios`、`Buffer`（含字节级操作）、`URLSearchParams`、`URL`、`process.env`、`console`；`crypto.createHash('md5')`、`crypto.randomBytes`；`os`/`path`/`fs` 内存 stub。不支持 AES/RSA、`cheerio`。
+
+**Node.js 运行时**：`omnibox_sdk`/`axios`/`spider_runner` 为 shim（网络桥接回 Rust，与 QuickJS 同一安全边界）；`crypto`/`https`/`http`/`buffer` 等为 Node 原生模块，支持完整 AES/RSA。刮削/嗅探/弹幕等 OmniBox 专有能力 stub 为空（不影响搜索/详情/播放）。
 
 ## 环境变量
 
@@ -61,34 +80,39 @@ module.exports = {
 | `ADMIN_TOKEN` | 脚本管理接口口令（建议局域网使用时设置） |
 | `DATA_DIR` | 数据目录，默认 `./data`（脚本存于其下 `spiders/`） |
 | `SITE_API` | 传给脚本 `process.env.SITE_API`（通用采集站模板用） |
+| `DANMU_API` | 传给脚本 `process.env.DANMU_API`（弹幕匹配用） |
 
 ## HTTP API
 
 | 接口 | 说明 |
 |---|---|
-| `GET /api/health` | 健康检查 |
+| `GET /api/health` | 健康检查（含 `engines.quickjs` / `engines.node` / `engines.node_version`） |
 | `GET /api/douban/home` | 豆瓣首页（分类/筛选/Banner） |
 | `GET /api/douban/category?cat=&page=&filters=` | 豆瓣分类 |
 | `GET /api/vod/search?src=all\|<id>&wd=&page=` | 聚合搜索（all=所有启用脚本） |
 | `GET /api/vod/detail?src=<id>&id=` | 详情（剧集已归一化） |
 | `GET /api/vod/play?src=<id>&q=` | 播放解析 |
 | `GET /api/spiders` | 脚本列表（需口令） |
-| `POST /api/spiders/upload` | multipart 上传脚本（需口令） |
-| `POST /api/spiders/url?url=` | URL 拉取脚本（需口令） |
-| `GET /api/spiders/:id/:action` | toggle/remove/source/test（需口令） |
+| `POST /api/spiders/upload?runtime=` | multipart 上传脚本（需口令） |
+| `POST /api/spiders/paste` | JSON `{name, source, runtime}` 粘贴导入（需口令） |
+| `POST /api/spiders/url?url=&runtime=` | URL 拉取脚本（需口令） |
+| `GET /api/spiders/:id/:action` | toggle/runtime/remove/source/test（需口令） |
 | `GET /api/img?url=` | 图片代理（豆瓣 Referer） |
-| `GET /api/stream?url=&ua=&referer=` | 视频流代理（Range + m3u8 重写） |
+| `GET /api/stream?url=&ua=&referer=&origin=` | 视频流代理（Range + m3u8 重写 + header 透传） |
 
 ## 安全
 
 - 口令保护：设置 `ADMIN_TOKEN` 后，所有 `/api/spiders*` 需带 `?token=`。
-- 脚本沙箱：每次调用独立 Runtime、64MB 内存上限、20s 中断超时、禁 `fs/child_process/eval`。
-- 网络限制：脚本 `OmniBox.request` 仅允许 http/https，拦截内网/回环地址，防 SSRF。
+- QuickJS 沙箱：每次调用独立 Runtime、64MB 内存上限、20s 中断超时、禁 `fs/child_process`。
+- Node 子进程：脚本内网络请求仍经 Rust 桥接，沿用 http/https + 内网拦截 + 5MB 响应限制；调用超时 30s 自动重启进程。
+- 网络限制：两条链路都拦截内网/回环地址，防 SSRF。
 - 建议仅在本机或可信局域网运行，勿直接暴露到公网。
 
 ## 已知限制
 
-- 不支持 `cheerio` 等 Node HTML 解析库；纯 HTML 抓取类脚本需改用 JSON/API 类源。
-- OmniBox 专有的刮削（TMDB）、弹幕、嗅探能力未实现，stub 为空。
-- `parse=1` 的播放地址第一版按直连尝试；需第三方解析接口的源可能无法播放。
+- Node.js 运行时需在服务端预装（18+）；未安装时加密源不可用，health 会显示 `engines.node=false`。
+- 加密源的上游接口若有地域/IP 风控（如瓜子对云主机出口 IP 返回 403），需在实际网络环境验证，与运行时能力无关。
+- 不支持 `cheerio` 等 Node HTML 解析库（QuickJS 下）；纯 HTML 抓取类脚本请用 Node 运行时或改用 JSON/API 类源。
+- OmniBox 专有刮削（TMDB）、弹幕、嗅探能力未实现，stub 为空。
+- `parse=1` 的播放地址按直连尝试；需第三方解析接口的源可能无法播放。
 - 未导入任何脚本时，搜索页会提示前往脚本管理页。

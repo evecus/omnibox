@@ -2,6 +2,7 @@
 
 mod cache;
 mod douban;
+mod node;
 mod proxy;
 mod registry;
 mod spider;
@@ -21,6 +22,7 @@ const SPIDERS_HTML: &str = include_str!("../static/spiders.html");
 const APP_CSS: &str = include_str!("../static/app.css");
 const MANIFEST: &str = include_str!("../static/manifest.json");
 const SW_JS: &str = include_str!("../static/sw.js");
+const HLS_JS: &str = include_str!("../static/hls.min.js");
 
 async fn index_page() -> Html<&'static str> {
     Html(INDEX_HTML)
@@ -43,6 +45,9 @@ async fn manifest() -> impl IntoResponse {
 async fn sw() -> impl IntoResponse {
     ([(axum::http::header::CONTENT_TYPE, "application/javascript; charset=utf-8")], SW_JS)
 }
+async fn hls_js() -> impl IntoResponse {
+    ([(axum::http::header::CONTENT_TYPE, "application/javascript; charset=utf-8")], HLS_JS)
+}
 async fn icon192() -> impl IntoResponse {
     ([("content-type", "image/png")], include_bytes!("../static/icon-192.png").as_slice())
 }
@@ -50,19 +55,31 @@ async fn icon512() -> impl IntoResponse {
     ([("content-type", "image/png")], include_bytes!("../static/icon-512.png").as_slice())
 }
 async fn health() -> impl IntoResponse {
-    axum::Json(json!({"ok": true, "version": env!("CARGO_PKG_VERSION"), "engine": "quickjs"}))
+    let (node_ok, node_ver) = node::available().await;
+    axum::Json(json!({
+        "ok": true,
+        "version": env!("CARGO_PKG_VERSION"),
+        "engines": {
+            "quickjs": true,
+            "node": node_ok,
+            "node_version": node_ver,
+        }
+    }))
 }
 
 // ===== 脚本管理 API（口令保护）=====
 
+fn token_ok(token: Option<&String>) -> bool {
+    match std::env::var("ADMIN_TOKEN").ok().filter(|t| !t.is_empty()) {
+        Some(expect) => token.map(|t| t == &expect).unwrap_or(false),
+        None => true,
+    }
+}
+
 fn check_auth(q: &BTreeMap<String, String>) -> Result<(), axum::Json<serde_json::Value>> {
-    if let Some(token) = std::env::var("ADMIN_TOKEN").ok().filter(|t| !t.is_empty()) {
-        match q.get("token") {
-            Some(t) if t == &token => Ok(()),
-            _ => Err(axum::Json(json!({"ok": false, "error": "口令错误"}))),
-        }
+    if !token_ok(q.get("token")) {
+        Err(axum::Json(json!({"ok": false, "error": "口令错误"})))
     } else {
-        // 未设置 ADMIN_TOKEN 时允许本地使用
         Ok(())
     }
 }
@@ -88,12 +105,32 @@ async fn api_spiders_upload(
             Err(e) => return axum::Json(json!({"ok": false, "error": format!("读取文件失败: {e}")})),
         };
         let source = String::from_utf8_lossy(&bytes);
-        return match registry::add_upload(&name, &source) {
+        let runtime = q.get("runtime").map(|s| s.as_str());
+        return match registry::add_upload(&name, &source, runtime) {
             Ok(meta) => axum::Json(json!({"ok": true, "spider": meta})),
             Err(e) => axum::Json(json!({"ok": false, "error": e.to_string()})),
         };
     }
     axum::Json(json!({"ok": false, "error": "未收到文件"}))
+}
+
+async fn api_spiders_paste(
+    axum::Json(body): axum::Json<serde_json::Value>,
+) -> axum::Json<serde_json::Value> {
+    let token = body.get("token").and_then(|v| v.as_str()).map(|s| s.to_string());
+    if !token_ok(token.as_ref()) {
+        return axum::Json(json!({"ok": false, "error": "口令错误"}));
+    }
+    let name = body.get("name").and_then(|v| v.as_str()).unwrap_or("pasted.js");
+    let source = body.get("source").and_then(|v| v.as_str()).unwrap_or("");
+    let runtime = body.get("runtime").and_then(|v| v.as_str());
+    if source.trim().is_empty() {
+        return axum::Json(json!({"ok": false, "error": "源码不能为空"}));
+    }
+    match registry::add_upload(name, source, runtime) {
+        Ok(meta) => axum::Json(json!({"ok": true, "spider": meta})),
+        Err(e) => axum::Json(json!({"ok": false, "error": e.to_string()})),
+    }
 }
 
 async fn api_spiders_url(Query(q): Query<BTreeMap<String, String>>) -> axum::Json<serde_json::Value> {
@@ -104,7 +141,8 @@ async fn api_spiders_url(Query(q): Query<BTreeMap<String, String>>) -> axum::Jso
     if url.is_empty() {
         return axum::Json(json!({"ok": false, "error": "url 不能为空"}));
     }
-    match registry::add_from_url(&url).await {
+    let runtime = q.get("runtime").map(|s| s.as_str());
+    match registry::add_from_url(&url, runtime).await {
         Ok(meta) => axum::Json(json!({"ok": true, "spider": meta})),
         Err(e) => axum::Json(json!({"ok": false, "error": e.to_string()})),
     }
@@ -125,6 +163,13 @@ async fn api_spiders_action(
                 Err(e) => axum::Json(json!({"ok": false, "error": e.to_string()})),
             }
         }
+        "runtime" => {
+            let rt = q.get("value").cloned().unwrap_or_default();
+            match registry::set_runtime(&id, &rt) {
+                Ok(m) => axum::Json(json!({"ok": true, "spider": m})),
+                Err(e) => axum::Json(json!({"ok": false, "error": e.to_string()})),
+            }
+        }
         "remove" => match registry::remove(&id) {
             Ok(_) => axum::Json(json!({"ok": true})),
             Err(e) => axum::Json(json!({"ok": false, "error": e.to_string()})),
@@ -134,13 +179,9 @@ async fn api_spiders_action(
             Err(e) => axum::Json(json!({"ok": false, "error": e.to_string()})),
         },
         "test" => {
-            let source = match registry::read_source(&id) {
-                Ok(s) => s,
-                Err(e) => return axum::Json(json!({"ok": false, "error": e.to_string()})),
-            };
             let kw = q.get("kw").cloned().unwrap_or_else(|| "测试".into());
             let params = json!({"keyword": kw, "wd": kw, "page": 1});
-            match spider::call_script_source(&source, "search", params).await {
+            match vod::dispatch(&id, "search", params).await {
                 Ok(v) => {
                     registry::mark_result(&id, true, None);
                     axum::Json(json!({"ok": true, "result": v}))
@@ -165,6 +206,7 @@ async fn main() {
         .route("/app.css", get(css))
         .route("/manifest.json", get(manifest))
         .route("/sw.js", get(sw))
+        .route("/hls.min.js", get(hls_js))
         .route("/icon-192.png", get(icon192))
         .route("/icon-512.png", get(icon512))
         .route("/api/health", get(health))
@@ -175,6 +217,7 @@ async fn main() {
         .route("/api/vod/play", get(vod::play_handler))
         .route("/api/spiders", get(api_spiders))
         .route("/api/spiders/upload", post(api_spiders_upload))
+        .route("/api/spiders/paste", post(api_spiders_paste))
         .route("/api/spiders/url", post(api_spiders_url))
         .route("/api/spiders/{id}/{action}", get(api_spiders_action))
         .route("/api/img", get(proxy::img))

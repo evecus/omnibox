@@ -82,29 +82,205 @@ var __axios = {
 __mods["axios"] = __axios;
 
 // ---- Buffer 兼容层（utf8 / base64 / base64url / hex）----
+// 内部用 latin1 字节串表示，支持字节级操作（indexOf/slice/[i]/concat）
+function __mkbuf(bytes){
+  var s = "";
+  for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i] & 255);
+  var b = {
+    _bytes: bytes,
+    length: bytes.length,
+    toString: function(o){
+      o = o || "utf8";
+      if (o === "base64" || o === "base64url") return __b64encode(s, o);
+      if (o === "hex") return __hexencode(s);
+      return __latin1ToUtf8(s);
+    },
+    slice: function(a, b){ return __mkbuf(bytes.slice(a, b)); },
+    subarray: function(a, b){ return __mkbuf(bytes.slice(a, b)); },
+    indexOf: function(v, from){
+      var x = (typeof v === "number") ? v : (v & 255);
+      return bytes.indexOf(x, from || 0);
+    }
+  };
+  for (var k = 0; k < bytes.length; k++) b[k] = bytes[k];
+  return b;
+}
+function __utf8ToBytes(str){
+  str = String(str);
+  var out = [], i = 0;
+  while (i < str.length){
+    var c = str.charCodeAt(i);
+    if (c < 128) { out.push(c); i++; }
+    else if (c < 2048) { out.push(192|(c>>6), 128|(c&63)); i++; }
+    else if (c >= 55296 && c <= 56319 && i+1 < str.length){
+      var c2 = str.charCodeAt(i+1);
+      var cp = 65536 + ((c-55296)<<10) + (c2-56320);
+      out.push(240|(cp>>18), 128|((cp>>12)&63), 128|((cp>>6)&63), 128|(cp&63)); i+=2;
+    } else { out.push(224|(c>>12), 128|((c>>6)&63), 128|(c&63)); i++; }
+  }
+  return out;
+}
+function __latin1ToUtf8(s){
+  var bytes = [];
+  for (var i=0;i<s.length;i++) bytes.push(s.charCodeAt(i)&255);
+  return __bytesToUtf8(bytes);
+}
+function __bytesToUtf8(bytes){
+  var out = "", i = 0;
+  while (i < bytes.length){
+    var c = bytes[i];
+    if (c < 128) { out += String.fromCharCode(c); i++; }
+    else if (c >= 192 && c < 224) { out += String.fromCharCode(((c&31)<<6)|(bytes[i+1]&63)); i+=2; }
+    else if (c >= 224 && c < 240) { out += String.fromCharCode(((c&15)<<12)|((bytes[i+1]&63)<<6)|(bytes[i+2]&63)); i+=3; }
+    else if (c >= 240) { var cp=((c&7)<<18)|((bytes[i+1]&63)<<12)|((bytes[i+2]&63)<<6)|(bytes[i+3]&63); cp-=65536; out += String.fromCharCode(55296|(cp>>10), 56320|(cp&63)); i+=4; }
+    else { out += String.fromCharCode(c); i++; }
+  }
+  return out;
+}
+function __strToBytes(data, enc){
+  enc = enc || "utf8";
+  if (typeof data === "number") return new Array(Math.max(0, data|0)).fill(0);
+  if (Array.isArray(data)) return data.map(function(x){ return x & 255; });
+  if (data && data._bytes) return data._bytes.slice();
+  if (enc === "base64" || enc === "base64url"){
+    var s = __b64decode(String(data), enc), out=[];
+    for (var i=0;i<s.length;i++) out.push(s.charCodeAt(i)&255);
+    return out;
+  }
+  if (enc === "hex"){
+    var h = String(data), out=[];
+    for (var i=0;i+1<h.length;i+=2){ var v=parseInt(h.substr(i,2),16); if(!isNaN(v)) out.push(v); }
+    return out;
+  }
+  return __utf8ToBytes(String(data));
+}
 globalThis.Buffer = {
-  from: function(data, enc){
-    enc = enc || "utf8";
-    if (typeof data === "number") data = "";
-    var bytes = (enc === "base64" || enc === "base64url") ? __b64decode(String(data), enc)
-              : (enc === "hex" ? __hexdecode(String(data)) : String(data));
-    bytes = String(bytes);
-    return {
-      toString: function(o){
-        o = o || "utf8";
-        if (o === "base64" || o === "base64url") return __b64encode(bytes, o);
-        if (o === "hex") return __hexencode(bytes);
-        return bytes;
-      },
-      length: bytes.length
-    };
+  from: function(data, enc){ return __mkbuf(__strToBytes(data, enc)); },
+  concat: function(list){
+    var out = [];
+    for (var i=0;i<list.length;i++){
+      var b = list[i]._bytes || [];
+      for (var j=0;j<b.length;j++) out.push(b[j]&255);
+    }
+    return __mkbuf(out);
   },
-  byteLength: function(s){ return String(s).length; }
+  alloc: function(n){ return __mkbuf(new Array(Math.max(0,n|0)).fill(0)); },
+  isBuffer: function(x){ return !!(x && x._bytes); },
+  byteLength: function(s, enc){ return __strToBytes(s, enc || "utf8").length; }
 };
 
+// ---- URLSearchParams / URL ----
+globalThis.URLSearchParams = function(init){
+  var m = [];
+  if (typeof init === "string"){
+    init = init.replace(/^\?/, "");
+    init.split("&").forEach(function(pair){
+      if (!pair) return;
+      var i = pair.indexOf("=");
+      var k = i < 0 ? pair : pair.slice(0, i);
+      var v = i < 0 ? "" : pair.slice(i + 1);
+      m.push([decodeURIComponent(k.replace(/\+/g," ")), decodeURIComponent(v.replace(/\+/g," "))]);
+    });
+  } else if (init && typeof init === "object"){
+    Object.keys(init).forEach(function(k){ m.push([k, String(init[k])]); });
+  }
+  this._m = m;
+};
+globalThis.URLSearchParams.prototype = {
+  toString: function(){
+    return this._m.map(function(p){ return encodeURIComponent(p[0]) + "=" + encodeURIComponent(p[1]); }).join("&");
+  },
+  append: function(k,v){ this._m.push([String(k), String(v)]); },
+  set: function(k,v){
+    k = String(k); var found = false;
+    for (var i=0;i<this._m.length;i++){ if (this._m[i][0]===k){ this._m[i][1]=String(v); } else if(!found){ /* noop */ } }
+    var exists = this._m.some(function(p){ return p[0]===k; });
+    if (!exists) this._m.push([k, String(v)]);
+  },
+  get: function(k){ for (var i=0;i<this._m.length;i++) if (this._m[i][0]===k) return this._m[i][1]; return null; },
+  has: function(k){ return this._m.some(function(p){ return p[0]===k; }); },
+  forEach: function(cb){ this._m.forEach(function(p){ cb(p[1], p[0]); }); },
+  keys: function(){ return this._m.map(function(p){ return p[0]; }); },
+  values: function(){ return this._m.map(function(p){ return p[1]; }); }
+};
+globalThis.URL = function(u, base){
+  if (base && !/^https?:/i.test(String(u))){
+    var b = String(base).replace(/\/[^/]*$/, "/");
+    u = b + String(u).replace(/^\.\//,"").replace(/^\//,"");
+  }
+  this.href = String(u);
+  var m = /^(https?:)\/\/([^\/?#]+)([^?#]*)(\?[^#]*)?(#.*)?$/.exec(String(u));
+  if (m){
+    this.protocol = m[1]; this.host = m[2]; this.pathname = m[3] || "/";
+    this.search = m[4] || ""; this.hash = m[5] || "";
+    this.searchParams = new globalThis.URLSearchParams(this.search || "");
+  } else {
+    this.protocol=""; this.host=""; this.pathname=String(u); this.search=""; this.hash="";
+    this.searchParams = new globalThis.URLSearchParams();
+  }
+};
+globalThis.encodeURIComponent = encodeURIComponent;
+globalThis.decodeURIComponent = decodeURIComponent;
+
+// http/https 占位（含 Agent 构造器，避免 new http.Agent() 报错）
+var __agentMod = { Agent: function(opts){ this.options = opts || {}; } };
+__mods["http"] = __agentMod;
+__mods["https"] = __agentMod;
+
 // ---- 其他模块占位 ----
-["cheerio","http","https","crypto","fs","path","util","child_process","vm","url","querystring","crypto-js"].forEach(function(m){
-  __mods[m] = {};
+var __fsMem = {};
+var __osMod = {
+  tmpdir: function(){ return "/tmp"; },
+  homedir: function(){ return "/tmp"; },
+  platform: function(){ return "linux"; },
+  EOL: "\n"
+};
+var __pathMod = {
+  join: function(){ var a = Array.prototype.slice.call(arguments); return a.join("/").replace(/\/+/g,"/"); },
+  resolve: function(){ var a = Array.prototype.slice.call(arguments); return a.join("/").replace(/\/+/g,"/"); },
+  basename: function(p){ return String(p).split("/").pop(); },
+  dirname: function(p){ var s=String(p).split("/"); s.pop(); return s.join("/")||"/"; },
+  extname: function(p){ var b=__pathMod.basename(p); var i=b.lastIndexOf("."); return i<0?"":b.slice(i); }
+};
+var __fsMod = {
+  existsSync: function(p){ return Object.prototype.hasOwnProperty.call(__fsMem, String(p)); },
+  readFileSync: function(p){ return __fsMem[String(p)] || ""; },
+  writeFileSync: function(p, d){ __fsMem[String(p)] = String(d); },
+  mkdirSync: function(){},
+  readdirSync: function(){ return []; }
+};
+// ---- crypto 基础兼容层（md5 / randomBytes；AES/RSA 需原生 Node，脚本调用会走 stub）----
+// md5 用 Rust 原语；randomBytes 用时间戳+随机数
+var __cryptoMod = {
+  createHash: function(alg){
+    var parts = [];
+    return {
+      update: function(d){ parts.push(typeof d === "string" ? d : (d && d.toString ? d.toString("utf8") : String(d))); return this; },
+      digest: function(enc){
+        var hex = __md5(parts.join(""));
+        return enc === "hex" ? hex : __mkbuf(__hexToBytes(hex));
+      }
+    };
+  },
+  randomBytes: function(n){
+    n = Number(n) || 16; var out = [];
+    for (var i=0;i<n;i++) out.push(Math.floor(Math.random()*256));
+    return __mkbuf(out);
+  },
+  constants: { RSA_PKCS1_PADDING: 1, RSA_NO_PADDING: 3 },
+  createCipheriv: function(){ throw new Error("AES 加密在当前运行环境不支持"); },
+  createDecipheriv: function(){ throw new Error("AES 解密在当前运行环境不支持"); },
+  publicEncrypt: function(){ throw new Error("RSA 加密在当前运行环境不支持"); },
+  privateDecrypt: function(){ throw new Error("RSA 解密在当前运行环境不支持"); }
+};
+function __hexToBytes(h){ var out=[]; for(var i=0;i+1<h.length;i+=2) out.push(parseInt(h.substr(i,2),16)); return out; }
+__mods["crypto"] = __cryptoMod;
+
+__mods["os"] = __osMod;
+__mods["path"] = __pathMod;
+__mods["fs"] = __fsMod;
+["cheerio","util","child_process","vm","url","querystring","crypto-js","stream","events","buffer","net","tls","zlib"].forEach(function(m){
+  if (!__mods[m]) __mods[m] = {};
 });
 
 globalThis.require = function(name){
@@ -190,6 +366,9 @@ pub async fn call_script_source(
             ctx.globals()
                 .set("__hexdecode", Func::from(js_hex_decode))
                 .unwrap();
+            ctx.globals()
+                .set("__md5", Func::from(js_md5))
+                .unwrap();
 
             // 环境变量
             let env = serde_json::json!({
@@ -232,8 +411,12 @@ globalThis.exports = globalThis.module.exports;
                     .into_future::<String>()
                     .await
                     .catch(&ctx)
-                    .unwrap_or_else(|_| r#"{"__err":"JS 执行异常"}"#.to_string()),
-                Err(_) => r#"{"__err":"脚本求值失败（语法错误或不兼容的 API）"}"#.to_string(),
+                    .unwrap_or_else(|e| {
+                        serde_json::json!({"__err": format!("JS 执行异常: {:?}", e)}).to_string()
+                    }),
+                Err(e) => {
+                    serde_json::json!({"__err": format!("脚本求值失败: {:?}", e)}).to_string()
+                }
             };
             let logs = logs.lock().map(|v| v.clone()).unwrap_or_default();
             (result, logs)
@@ -373,4 +556,58 @@ fn js_hex_decode(data: String) -> String {
         i += 2;
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+/// 轻量 MD5 实现（无外部依赖），返回小写 hex
+fn js_md5(input: String) -> String {
+    fn md5(bytes: &[u8]) -> [u8; 16] {
+        const S: [u32; 64] = [
+            7,12,17,22, 7,12,17,22, 7,12,17,22, 7,12,17,22,
+            5, 9,14,20, 5, 9,14,20, 5, 9,14,20, 5, 9,14,20,
+            4,11,16,23, 4,11,16,23, 4,11,16,23, 4,11,16,23,
+            6,10,15,21, 6,10,15,21, 6,10,15,21, 6,10,15,21,
+        ];
+        const K: [u32; 64] = [
+            0xd76aa478,0xe8c7b756,0x242070db,0xc1bdceee,0xf57c0faf,0x4787c62a,0xa8304613,0xfd469501,
+            0x698098d8,0x8b44f7af,0xffff5bb1,0x895cd7be,0x6b901122,0xfd987193,0xa679438e,0x49b40821,
+            0xf61e2562,0xc040b340,0x265e5a51,0xe9b6c7aa,0xd62f105d,0x02441453,0xd8a1e681,0xe7d3fbc8,
+            0x21e1cde6,0xc33707d6,0xf4d50d87,0x455a14ed,0xa9e3e905,0xfcefa3f8,0x676f02d9,0x8d2a4c8a,
+            0xfffa3942,0x8771f681,0x6d9d6122,0xfde5380c,0xa4beea44,0x4bdecfa9,0xf6bb4b60,0xbebfbc70,
+            0x289b7ec6,0xeaa127fa,0xd4ef3085,0x04881d05,0xd9d4d039,0xe6db99e5,0x1fa27cf8,0xc4ac5665,
+            0xf4292244,0x432aff97,0xab9423a7,0xfc93a039,0x655b59c3,0x8f0ccc92,0xffeff47d,0x85845dd1,
+            0x6fa87e4f,0xfe2ce6e0,0xa3014314,0x4e0811a1,0xf7537e82,0xbd3af235,0x2ad7d2bb,0xeb86d391,
+        ];
+        let mut msg = bytes.to_vec();
+        let bit_len = (msg.len() as u64).wrapping_mul(8);
+        msg.push(0x80);
+        while msg.len() % 64 != 56 { msg.push(0); }
+        msg.extend_from_slice(&bit_len.to_le_bytes());
+        let (mut a0,mut b0,mut c0,mut d0) = (0x67452301u32,0xefcdab89u32,0x98badcfeu32,0x10325476u32);
+        for chunk in msg.chunks(64) {
+            let mut m = [0u32; 16];
+            for i in 0..16 {
+                m[i] = u32::from_le_bytes([chunk[i*4],chunk[i*4+1],chunk[i*4+2],chunk[i*4+3]]);
+            }
+            let (mut a,mut b,mut c,mut d) = (a0,b0,c0,d0);
+            for i in 0..64 {
+                let (f,g) = if i < 16 { ((b & c) | ((!b) & d), i) }
+                    else if i < 32 { ((d & b) | ((!d) & c), (5*i+1)%16) }
+                    else if i < 48 { (b ^ c ^ d, (3*i+5)%16) }
+                    else { (c ^ (b | (!d)), (7*i)%16) };
+                let tmp = d;
+                d = c; c = b;
+                b = b.wrapping_add(a.wrapping_add(f).wrapping_add(K[i]).wrapping_add(m[g]).rotate_left(S[i]));
+                a = tmp;
+            }
+            a0 = a0.wrapping_add(a); b0 = b0.wrapping_add(b);
+            c0 = c0.wrapping_add(c); d0 = d0.wrapping_add(d);
+        }
+        let mut out = [0u8; 16];
+        out[0..4].copy_from_slice(&a0.to_le_bytes());
+        out[4..8].copy_from_slice(&b0.to_le_bytes());
+        out[8..12].copy_from_slice(&c0.to_le_bytes());
+        out[12..16].copy_from_slice(&d0.to_le_bytes());
+        out
+    }
+    md5(input.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 }

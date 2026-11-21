@@ -74,13 +74,17 @@ pub async fn stream(Query(q): Query<BTreeMap<String, String>>) -> Response {
         return err_resp(StatusCode::BAD_REQUEST, "缺少 url 参数");
     };
 
-    // 支持按源自定义请求头（ua/referer 查询参数覆盖默认的瓜子播放头）
+    // 支持按源自定义请求头（ua/referer/origin 查询参数覆盖默认的瓜子播放头）
     let ua = q.get("ua").cloned().filter(|s| !s.is_empty()).unwrap_or_else(|| PLAY_UA.to_string());
     let referer = q.get("referer").cloned().filter(|s| !s.is_empty()).unwrap_or_else(|| PLAY_REFERER.to_string());
+    let origin = q.get("origin").cloned().filter(|s| !s.is_empty());
     let mut req = client()
         .get(&url)
-        .header("User-Agent", ua)
-        .header("Referer", referer);
+        .header("User-Agent", &ua)
+        .header("Referer", &referer);
+    if let Some(o) = &origin {
+        req = req.header("Origin", o);
+    }
     let range = q.get("range").cloned().or_else(|| q.get("Range").cloned());
     if let Some(r) = &range {
         req = req.header("Range", r);
@@ -104,7 +108,7 @@ pub async fn stream(Query(q): Query<BTreeMap<String, String>>) -> Response {
         let Ok(text) = resp.text().await else {
             return err_resp(StatusCode::BAD_GATEWAY, "读取 m3u8 失败");
         };
-        let rewritten = rewrite_m3u8(&text, &url);
+        let rewritten = rewrite_m3u8(&text, &url, &ua, &referer, origin.as_deref());
         return (
             StatusCode::OK,
             [(header::CONTENT_TYPE, "application/vnd.apple.mpegurl")],
@@ -127,8 +131,8 @@ pub async fn stream(Query(q): Query<BTreeMap<String, String>>) -> Response {
     (axum_status, headers, Body::from_stream(resp.bytes_stream())).into_response()
 }
 
-/// 将 m3u8 中的相对/绝对地址重写为经本站 /api/stream 代理的地址
-fn rewrite_m3u8(text: &str, base: &str) -> String {
+/// 将 m3u8 中的相对/绝对地址重写为经本站 /api/stream 代理的地址（透传播放 header）
+fn rewrite_m3u8(text: &str, base: &str, ua: &str, referer: &str, origin: Option<&str>) -> String {
     let mut out = String::with_capacity(text.len() + 256);
     for line in text.lines() {
         let trimmed = line.trim();
@@ -138,17 +142,17 @@ fn rewrite_m3u8(text: &str, base: &str) -> String {
         }
         if trimmed.starts_with('#') {
             // 处理 #EXT-X-KEY:...URI="xxx" 等属性中的 URI
-            out.push_str(&rewrite_uri_attrs(line, base));
+            out.push_str(&rewrite_uri_attrs(line, base, ua, referer, origin));
             out.push('\n');
         } else {
-            out.push_str(&to_proxy_url(trimmed, base));
+            out.push_str(&to_proxy_url(trimmed, base, ua, referer, origin));
             out.push('\n');
         }
     }
     out
 }
 
-fn rewrite_uri_attrs(line: &str, base: &str) -> String {
+fn rewrite_uri_attrs(line: &str, base: &str, ua: &str, referer: &str, origin: Option<&str>) -> String {
     let mut result = String::with_capacity(line.len());
     let mut rest = line;
     while let Some(pos) = rest.find("URI=\"") {
@@ -156,7 +160,7 @@ fn rewrite_uri_attrs(line: &str, base: &str) -> String {
         rest = &rest[pos + 5..];
         if let Some(end) = rest.find('"') {
             let uri = &rest[..end];
-            result.push_str(&to_proxy_url(uri, base));
+            result.push_str(&to_proxy_url(uri, base, ua, referer, origin));
             result.push('"');
             rest = &rest[end + 1..];
         } else {
@@ -167,7 +171,7 @@ fn rewrite_uri_attrs(line: &str, base: &str) -> String {
     result
 }
 
-fn to_proxy_url(uri: &str, base: &str) -> String {
+fn to_proxy_url(uri: &str, base: &str, ua: &str, referer: &str, origin: Option<&str>) -> String {
     let absolute = if uri.starts_with("http://") || uri.starts_with("https://") {
         uri.to_string()
     } else if let Ok(base_url) = reqwest::Url::parse(base) {
@@ -175,7 +179,16 @@ fn to_proxy_url(uri: &str, base: &str) -> String {
     } else {
         uri.to_string()
     };
-    format!("/api/stream?url={}", urlencoding::encode(&absolute))
+    let mut proxy = format!(
+        "/api/stream?url={}&ua={}&referer={}",
+        urlencoding::encode(&absolute),
+        urlencoding::encode(ua),
+        urlencoding::encode(referer)
+    );
+    if let Some(o) = origin {
+        proxy.push_str(&format!("&origin={}", urlencoding::encode(o)));
+    }
+    proxy
 }
 
 #[allow(dead_code)]

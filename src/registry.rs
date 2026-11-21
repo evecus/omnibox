@@ -28,6 +28,21 @@ pub struct SpiderMeta {
     /// 从脚本 // @name 注释解析出的展示名
     #[serde(default)]
     pub display_name: String,
+    /// 执行运行时："quickjs"（默认）| "node"
+    #[serde(default = "default_runtime")]
+    pub runtime: String,
+}
+
+fn default_runtime() -> String {
+    "quickjs".to_string()
+}
+
+/// 归一化 runtime 取值，非法值回落到 quickjs
+fn norm_runtime(s: Option<&str>) -> String {
+    match s.unwrap_or("").trim().to_lowercase().as_str() {
+        "node" | "nodejs" => "node".to_string(),
+        _ => "quickjs".to_string(),
+    }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -147,8 +162,8 @@ pub fn read_source(id: &str) -> Result<String> {
     Ok(std::fs::read_to_string(path)?)
 }
 
-/// 上传脚本：name 为文件名，source 为内容
-pub fn add_upload(name: &str, source: &str) -> Result<SpiderMeta> {
+/// 上传脚本：name 为文件名，source 为内容，runtime 为执行引擎
+pub fn add_upload(name: &str, source: &str, runtime: Option<&str>) -> Result<SpiderMeta> {
     if source.len() > 500 * 1024 {
         return Err(anyhow!("脚本超过 500KB 限制"));
     }
@@ -171,6 +186,7 @@ pub fn add_upload(name: &str, source: &str) -> Result<SpiderMeta> {
         last_ok: None,
         last_error: None,
         display_name: display,
+        runtime: norm_runtime(runtime),
     };
     {
         let mut m = map().write().unwrap();
@@ -181,7 +197,7 @@ pub fn add_upload(name: &str, source: &str) -> Result<SpiderMeta> {
 }
 
 /// 从 URL 拉取脚本（校验协议/禁内网/限大小/超时）
-pub async fn add_from_url(url: &str) -> Result<SpiderMeta> {
+pub async fn add_from_url(url: &str, runtime: Option<&str>) -> Result<SpiderMeta> {
     let parsed = reqwest::Url::parse(url).context("URL 格式错误")?;
     match parsed.scheme() {
         "http" | "https" => {}
@@ -235,6 +251,7 @@ pub async fn add_from_url(url: &str) -> Result<SpiderMeta> {
         last_ok: None,
         last_error: None,
         display_name: display,
+        runtime: norm_runtime(runtime),
     };
     {
         let mut m = map().write().unwrap();
@@ -242,6 +259,16 @@ pub async fn add_from_url(url: &str) -> Result<SpiderMeta> {
         flush_locked(&m)?;
     }
     Ok(meta)
+}
+
+/// 切换脚本执行运行时
+pub fn set_runtime(id: &str, runtime: &str) -> Result<SpiderMeta> {
+    let mut m = map().write().unwrap();
+    let meta = m.get_mut(id).ok_or_else(|| anyhow!("脚本不存在: {id}"))?;
+    meta.runtime = norm_runtime(Some(runtime));
+    let out = meta.clone();
+    flush_locked(&m)?;
+    Ok(out)
 }
 
 pub fn toggle(id: &str, enabled: bool) -> Result<SpiderMeta> {
