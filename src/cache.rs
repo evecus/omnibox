@@ -1,4 +1,4 @@
-// cache.rs —— 极简内存 TTL 缓存（对应 瓜子.js 里的 cache 对象）
+// cache.rs —— 极简内存 TTL 缓存（对应脚本里的 cache 对象）
 
 use serde_json::Value;
 use std::collections::HashMap;

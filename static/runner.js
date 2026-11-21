@@ -1,11 +1,11 @@
 /*
- * runner.js —— FilmBox Node.js 子进程桥接器
+ * runner.js —— OmniBox Node.js 子进程桥接器
  * 由 Rust(node.rs) 启动，通过 stdio NDJSON 双向 RPC 执行 OmniBox 脚本。
  *
  * 关键点：
  *  - omnibox_sdk / axios / spider_runner 用自实现 shim（网络请求桥接回 Rust）
  *  - crypto / https / http / buffer 等 Node 原生模块直接放行 —— 这是相对 QuickJS 的核心优势，
- *    瓜子脚本的 crypto.createCipheriv / publicEncrypt / privateDecrypt 可以真正运行。
+ *    加密脚本的 crypto.createCipheriv / publicEncrypt / privateDecrypt 可以真正运行。
  *  - 每个 call 用 Module 隔离加载脚本，避免模块缓存导致的状态串扰。
  */
 'use strict';
@@ -58,7 +58,7 @@ const omniboxSdk = {
       setTimeout(() => memCache.delete(String(key)), Number(ttl) * 1000).unref?.();
     }
   },
-  // 以下为刮削/网盘/弹幕扩展，FilmBox 用不到，返回空值避免脚本报错
+  // 以下为刮削/网盘/弹幕扩展，OmniBox 用不到，返回空值避免脚本报错
   sniffVideo: async () => [],
   processScraping: async () => null,
   getScrapeMetadata: async () => null,
@@ -114,7 +114,7 @@ const axios = {
   },
 };
 
-// ---- spider_runner shim：FilmBox 主动调方法，无需脚本自注册 ----
+// ---- spider_runner shim：OmniBox 主动调方法，无需脚本自注册 ----
 const spiderRunner = { run: () => {} };
 
 // ---- 拦截 require：SDK 走 shim，Node 原生模块放行，第三方包按需自动安装 ----
@@ -158,7 +158,7 @@ function autoInstall(request) {
   try {
     fs.mkdirSync(SPIDER_DIR, { recursive: true });
     const pkg = path.join(SPIDER_DIR, 'package.json');
-    if (!fs.existsSync(pkg)) fs.writeFileSync(pkg, '{"name":"filmbox-spiders","private":true}');
+    if (!fs.existsSync(pkg)) fs.writeFileSync(pkg, '{"name":"omnibox-spiders","private":true}');
 
     const cp = require('child_process');
     const out = cp.execFileSync(

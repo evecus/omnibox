@@ -3,21 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FilmBox · 播放</title>
+<title>OmniBox · 播放</title>
 <link rel="stylesheet" href="/app.css">
 <script src="/hls.min.js"></script>
 <link rel="manifest" href="/manifest.json">
 </head>
 <body>
 <header>
-  <div class="logo" onclick="location.href='/'" style="cursor:pointer">FilmBox<span>播放</span></div>
+  <div class="logo" onclick="location.href='/'" style="cursor:pointer">OmniBox<span>播放</span></div>
   <div class="search-box">
     <input id="kw" placeholder="搜索影视名称" onkeydown="if(event.key==='Enter')doSearch()">
     <button onclick="doSearch()">搜索</button>
   </div>
 </header>
 <main>
-  <!-- 阶段1：从豆瓣片名匹配瓜子源 -->
+  <!-- 阶段1：从豆瓣片名匹配影视 -->
   <div id="pick" style="display:none">
     <div class="page-title" id="pick-title"></div>
     <div class="grid" id="pick-grid"></div>
@@ -119,7 +119,7 @@ async function loadDetail() {
   }
   const v = r.vod;
   episodes = r.episodes || [];
-  document.title = v.vod_name + ' · FilmBox';
+  document.title = v.vod_name + ' · OmniBox';
   document.getElementById('v-name').textContent = v.vod_name;
   document.getElementById('v-meta').innerHTML =
     `<b>年份</b> ${esc(v.vod_year) || '—'} &nbsp; <b>地区</b> ${esc(v.vod_area) || '—'}<br>

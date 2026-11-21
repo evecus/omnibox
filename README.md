@@ -1,9 +1,9 @@
-# FilmBox — 豆瓣推荐 + 双引擎动态影视源
+# OmniBox — 豆瓣推荐 + 双引擎动态影视源
 
 豆瓣做首页推荐与分类筛选，影视源全部由用户导入的 **OmniBox 格式脚本**提供，支持两种运行时：
 
 - **QuickJS**（默认）：Rust 内嵌、单二进制、零外部依赖、每次调用独立隔离，适合普通 JSON/API 采集源（如意、乌云等）。
-- **Node.js**（可选增强）：常驻子进程执行，提供原生 `crypto`（AES/RSA/md5）、`https/http`、`Buffer`，以及 `crypto-js` 兼容 shim（AES/MD5/SHA1/Base64）、`cheerio`（HTML 解析，需装依赖）。用于 QuickJS 无法覆盖的加密协议源（如瓜子 APP）和 HTML 抓取类脚本。**需服务端安装 Node.js 18+**。
+- **Node.js**（可选增强）：常驻子进程执行，提供原生 `crypto`（AES/RSA/md5）、`https/http`、`Buffer`，以及 `crypto-js` 兼容 shim（AES/MD5/SHA1/Base64）、`cheerio`（HTML 解析，需装依赖）。用于 QuickJS 无法覆盖的加密协议源（如各类加密签名协议源）和 HTML 抓取类脚本。**需服务端安装 Node.js 18+**。
 
 > 本项目不内置任何影视爬虫脚本。脚本由用户自行上传、粘贴源码或 URL 拉取，保存在本机 `data/spiders/`。请遵守当地法律法规，仅用于学习研究。
 
@@ -14,7 +14,7 @@
 | 脚本类型 | 推荐引擎 | 说明 |
 |---|---|---|
 | 纯 JSON/API 采集（如意资源、乌云影视、MacCMS 站） | QuickJS | 轻量、隔离好、无需 Node |
-| `crypto` AES/RSA（瓜子 APP 等签名协议） | **Node.js** | QuickJS 兼容层只有 md5 stub，AES/RSA 无法运行 |
+| `crypto` AES/RSA（各类签名协议源） | **Node.js** | QuickJS 兼容层只有 md5 stub，AES/RSA 无法运行 |
 | `crypto-js`（修罗/柯南/金牌等 8 个） | **Node.js** | 内置 crypto-js shim，零依赖 |
 | `cheerio` HTML 解析（4KMP 等 37 个） | **Node.js** | 首次使用时自动安装 cheerio（约 8MB），无需手动操作 |
 
@@ -39,16 +39,16 @@
 
 ```bash
 cargo build --release
-PORT=8021 ./target/release/filmbox
+./target/release/omnibox
 ```
 
-浏览器打开 `http://127.0.0.1:8021`
+默认监听 **3080** 端口，浏览器打开 `http://127.0.0.1:3080`（如需改端口：`PORT=其他端口 ./target/release/omnibox`）
 
 1. 打开 `/spiders.html`，先选引擎，再三种方式之一导入：
    - **上传文件**：选择本地 `.js`；
    - **粘贴源码**：把 `.js` 内容整段粘贴（手机端最稳）；
    - **URL 拉取**：填公网 raw 地址（如 GitHub raw）。
-2. 加密源（如瓜子、crypto-js 类）选 **Node.js**；普通源用默认 QuickJS。点「测试」验证。
+2. 加密源（加密源、crypto-js 类）选 **Node.js**；普通源用默认 QuickJS。点「测试」验证。
 3. 首次测试 cheerio 类脚本时会自动安装依赖（约 8MB，日志可见进度，需服务端能访问 npm）；`crypto-js` 已内置 shim，无需安装。若网络不通，也可离线提前准备 `data/spiders/node_modules`，或运行一次 `./install-deps.sh` 预装（可选）。无需重启。
 4. 回到首页 `/`（豆瓣推荐），或 `/search.html?q=片名` 搜索；手机可「添加到主屏幕」安装为 PWA。
 
@@ -79,7 +79,7 @@ module.exports = {
 
 | 变量 | 说明 |
 |---|---|
-| `PORT` | 监听端口，默认 8021 |
+| `PORT` | 监听端口，默认 3080 |
 | `ADMIN_TOKEN` | 脚本管理接口口令（建议局域网使用时设置） |
 | `DATA_DIR` | 数据目录，默认 `./data`（脚本存于其下 `spiders/`） |
 | `SITE_API` | 传给脚本 `process.env.SITE_API`（通用采集站模板用） |
@@ -114,7 +114,7 @@ module.exports = {
 ## 已知限制
 
 - Node.js 运行时需在服务端预装（18+）；未安装时加密源不可用，health 会显示 `engines.node=false`。
-- 加密源的上游接口若有地域/IP 风控（如瓜子对云主机出口 IP 返回 403），需在实际网络环境验证，与运行时能力无关。
+- 加密源的上游接口若有地域/IP 风控（部分源对云主机出口 IP 返回 403），需在实际网络环境验证，与运行时能力无关。
 - `cheerio` 类 HTML 抓取脚本需 Node 运行时，依赖在脚本首次运行时自动安装；QuickJS 下不支持。自动安装只针对白名单包（cheerio/opencc 等），且需服务端可访问 npm registry；离线环境请用 `./install-deps.sh` 或手动放置 `node_modules`。
 - 少数脚本依赖 `opencc-js`/`chinese-conv` 做简繁转换，同样按需自动安装；安装失败时相关功能降级，通常不影响搜索/播放。
 - OmniBox 专有刮削（TMDB）、弹幕、嗅探能力未实现，stub 为空。

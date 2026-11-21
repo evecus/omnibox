@@ -7,7 +7,7 @@ on:
 
 
 env:
-  BIN_NAME: filmbox
+  BIN_NAME: omnibox
 
 jobs:
   build-arm64-musl:

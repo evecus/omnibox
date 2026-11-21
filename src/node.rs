@@ -1,6 +1,6 @@
 // node.rs —— Node.js 子进程运行时（常驻进程 + stdio NDJSON 双向 RPC）
 // 与 spider.rs(QuickJS) 并列：脚本 meta.runtime == "node" 时走这里。
-// Node 原生提供 crypto(AES/RSA/md5)、https/http、Buffer，覆盖 QuickJS 无法实现的加密协议源（如瓜子）。
+// Node 原生提供 crypto(AES/RSA/md5)、https/http、Buffer，覆盖 QuickJS 无法实现的加密协议源（如加密签名协议源）。
 //
 // 协议（每行一条 JSON）：
 //   Rust -> Node : {"t":"call","id":N,"file":"...","method":"search","params":{},"env":{}}

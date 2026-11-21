@@ -4,18 +4,18 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#0d1117">
-<title>FilmBox · 脚本管理</title>
+<title>OmniBox · 脚本管理</title>
 <link rel="stylesheet" href="/app.css">
 <link rel="manifest" href="/manifest.json">
 </head>
 <body>
 <header>
-  <div class="logo" onclick="location.href='/'" style="cursor:pointer">FilmBox<span>脚本管理</span></div>
+  <div class="logo" onclick="location.href='/'" style="cursor:pointer">OmniBox<span>脚本管理</span></div>
   <div class="search-box"><button onclick="location.href='/search.html'">去搜索</button></div>
 </header>
 <main>
   <div class="page-title">影视源脚本 <em>双引擎</em></div>
-  <p class="tip">导入 OmniBox 格式的 .js 爬虫脚本（导出 home/category/search/detail/play）。<b>QuickJS</b> 轻量内嵌、适合普通源；<b>Node.js</b> 支持 AES/RSA 等原生加密，适合瓜子这类加密协议源（需服务端已安装 Node 18+）。脚本保存在本机 data/spiders/。</p>
+  <p class="tip">导入 OmniBox 格式的 .js 爬虫脚本（导出 home/category/search/detail/play）。<b>QuickJS</b> 轻量内嵌、适合普通源；<b>Node.js</b> 支持 AES/RSA 等原生加密，适合加密协议源（需服务端已安装 Node 18+）。脚本保存在本机 data/spiders/。</p>
 
   <div class="panel" id="engine-panel">
     <h3>运行时状态</h3>
@@ -28,7 +28,7 @@
       引擎：
       <select id="runtime" style="background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:8px;padding:6px 10px">
         <option value="quickjs">QuickJS（默认 · 通用）</option>
-        <option value="node">Node.js（加密源 · 如瓜子）</option>
+        <option value="node">Node.js（加密协议源）</option>
       </select>
       <span class="hint" style="margin:0">导入后仍可在脚本卡片上单独切换</span>
     </label>

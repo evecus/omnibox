@@ -1,5 +1,5 @@
-// FilmBox Service Worker：HTML/API network-first，静态资源 cache-first
-const CACHE = 'filmbox-v2';
+// OmniBox Service Worker：HTML/API network-first，静态资源 cache-first
+const CACHE = 'omnibox-v2';
 const SHELL = ['/', '/search.html', '/play.html', '/spiders.html', '/app.css', '/manifest.json', '/hls.min.js', '/icon-192.png', '/icon-512.png'];
 const HTML_PAGES = ['/', '/search.html', '/play.html', '/spiders.html'];
 

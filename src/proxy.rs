@@ -1,4 +1,4 @@
-// proxy.rs —— 图片代理与视频流代理（解决豆瓣/瓜子 CDN 防盗链、m3u8 重写）
+// proxy.rs —— 图片代理与视频流代理（解决豆瓣/各源站 CDN 防盗链、m3u8 重写）
 
 use axum::body::Body;
 use axum::extract::Query;
@@ -74,7 +74,7 @@ pub async fn stream(Query(q): Query<BTreeMap<String, String>>) -> Response {
         return err_resp(StatusCode::BAD_REQUEST, "缺少 url 参数");
     };
 
-    // 支持按源自定义请求头（ua/referer/origin 查询参数覆盖默认的瓜子播放头）
+    // 支持按源自定义请求头（ua/referer/origin 查询参数覆盖默认播放头）
     let ua = q.get("ua").cloned().filter(|s| !s.is_empty()).unwrap_or_else(|| PLAY_UA.to_string());
     let referer = q.get("referer").cloned().filter(|s| !s.is_empty()).unwrap_or_else(|| PLAY_REFERER.to_string());
     let origin = q.get("origin").cloned().filter(|s| !s.is_empty());

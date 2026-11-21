@@ -1,6 +1,6 @@
 {
-  "name": "FilmBox · 豆瓣推荐 + 多源影视",
-  "short_name": "FilmBox",
+  "name": "OmniBox · 豆瓣推荐 + 多源影视",
+  "short_name": "OmniBox",
   "description": "豆瓣推荐 + QuickJS 动态影视源",
   "start_url": "/",
   "scope": "/",

@@ -4,13 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#0d1117">
-<title>FilmBox · 搜索</title>
+<title>OmniBox · 搜索</title>
 <link rel="stylesheet" href="/app.css">
 <link rel="manifest" href="/manifest.json">
 </head>
 <body>
 <header>
-  <div class="logo" onclick="location.href='/'" style="cursor:pointer">FilmBox<span>搜索 · 多源</span></div>
+  <div class="logo" onclick="location.href='/'" style="cursor:pointer">OmniBox<span>搜索 · 多源</span></div>
   <div class="search-box">
     <input id="kw" placeholder="搜索影视名称" onkeydown="if(event.key==='Enter')doSearch()">
     <button onclick="doSearch()">搜索</button>
@@ -117,9 +117,17 @@ async function load(q, p) {
 }
 
 (async function init(){
+  const params = new URLSearchParams(location.search);
+  const q = (params.get('q') || '').trim();
+  if (q) document.getElementById('kw').value = q;
   await loadSources();
-  const q = document.getElementById('kw').value.trim();
-  if (q) load(q, 1); else document.getElementById('loading').style.display = 'none';
+  if (q) {
+    const p = Math.max(1, parseInt(params.get('page') || '1', 10) || 1);
+    page = p;
+    load(q, p);
+  } else {
+    document.getElementById('loading').style.display = 'none';
+  }
 })();
 </script>
 <script>

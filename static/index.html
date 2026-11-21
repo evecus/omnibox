@@ -3,16 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FilmBox · 豆瓣推荐</title>
+<title>OmniBox · 豆瓣推荐</title>
 <link rel="stylesheet" href="/app.css">
 <link rel="manifest" href="/manifest.json">
 </head>
 <body>
 <header>
-  <div class="logo">FilmBox<span>豆瓣推荐 · 瓜子片源</span></div>
+  <div class="logo">OmniBox<span>豆瓣推荐 · 多源影视</span></div>
   <nav id="nav"></nav>
   <div class="search-box">
-    <input id="kw" placeholder="搜索影视（瓜子源）" onkeydown="if(event.key==='Enter')doSearch()">
+    <input id="kw" placeholder="搜索影视" onkeydown="if(event.key==='Enter')doSearch()">
     <button onclick="doSearch()">搜索</button>
     <button class="source-btn" onclick="location.href='/spiders.html'" title="管理影视源脚本">源管理</button>
   </div>

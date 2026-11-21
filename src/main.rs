@@ -1,4 +1,4 @@
-// main.rs —— FilmBox 入口：豆瓣首页 + QuickJS 动态脚本源 + 网页面板
+// main.rs —— OmniBox 入口：豆瓣首页 + QuickJS 动态脚本源 + 网页面板
 
 mod cache;
 mod douban;
@@ -223,12 +223,12 @@ async fn main() {
         .route("/api/img", get(proxy::img))
         .route("/api/stream", get(proxy::stream));
 
-    let port: u16 = std::env::var("PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(8021);
+    let port: u16 = std::env::var("PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(3080);
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port))
         .await
         .expect("端口绑定失败");
 
-    println!("FilmBox 已启动: http://0.0.0.0:{port}");
+    println!("OmniBox 已启动: http://0.0.0.0:{port}");
     println!("  首页(豆瓣): /   搜索(脚本源): /search.html   脚本管理: /spiders.html");
     let _ = registry::debug_dir();
     axum::serve(listener, app).await.expect("服务运行失败");
