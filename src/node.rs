@@ -9,6 +9,8 @@
 //   Node -> Rust : {"t":"log","level":"info","msg":"..."}
 //   Node -> Rust : {"t":"call_result","id":N,"ok":true,"data":{...}}
 //   Node 脚本内的 OmniBox.request / axios 都桥接回 Rust 发请求，沿用 is_private_host 安全边界。
+//   第三方 npm 包（cheerio 等）由 runner.js 在 require 缺失时按需同步自动安装到 SPIDER_DIR/node_modules，
+//   安装进度通过 {"t":"log"} 回传；白名单限制可自动安装的包。
 
 use crate::registry;
 use anyhow::{anyhow, Context as _, Result};
@@ -23,7 +25,9 @@ use std::process::Stdio;
 use tokio::sync::{oneshot, Mutex as AsyncMutex};
 
 const RUNNER_JS: &str = include_str!("../static/runner.js");
-const CALL_TIMEOUT: Duration = Duration::from_secs(30);
+const CRYPTO_JS_SHIM: &str = include_str!("../static/crypto-js-shim.js");
+// 首次执行可能触发 npm install（如 cheerio），需放宽超时；安装只在首次发生，之后调用很快。
+const CALL_TIMEOUT: Duration = Duration::from_secs(180);
 
 struct Proc {
     child: Child,
@@ -56,14 +60,28 @@ fn runner_path() -> Result<std::path::PathBuf> {
     let dir = registry::debug_dir();
     let p = dir.join(".runner.js");
     std::fs::write(&p, RUNNER_JS).context("写入 node runner 失败")?;
+    // crypto-js shim 与 runner 同目录，runner 通过 require('./.crypto-js-shim.js') 加载
+    std::fs::write(dir.join(".crypto-js-shim.js"), CRYPTO_JS_SHIM)
+        .context("写入 crypto-js shim 失败")?;
     Ok(p)
 }
 
 async fn spawn_proc() -> Result<ProcRef> {
     let path = runner_path()?;
+    let data_dir = registry::debug_dir();
+    // 让脚本能 require 到 data/spiders/node_modules 里安装的 cheerio 等包
+    let node_modules = data_dir.join("node_modules");
+    let node_path = match std::env::var("NODE_PATH") {
+        Ok(existing) if !existing.is_empty() => format!("{}:{}", node_modules.display(), existing),
+        _ => node_modules.to_string_lossy().to_string(),
+    };
+    // 传给 runner 绝对的脚本目录，避免相对路径歧义，用于按需安装依赖到其 node_modules。
+    let spider_dir = std::fs::canonicalize(&data_dir).unwrap_or_else(|_| data_dir.clone());
     let mut child = Command::new("node")
         .arg(&path)
         .env("DATA_DIR", std::env::var("DATA_DIR").unwrap_or_else(|_| "data".into()))
+        .env("SPIDER_DIR", &spider_dir)
+        .env("NODE_PATH", node_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

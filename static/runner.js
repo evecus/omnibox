@@ -117,16 +117,71 @@ const axios = {
 // ---- spider_runner shim：FilmBox 主动调方法，无需脚本自注册 ----
 const spiderRunner = { run: () => {} };
 
-// ---- 拦截 require：SDK 走 shim，Node 原生模块放行 ----
+// ---- 拦截 require：SDK 走 shim，Node 原生模块放行，第三方包按需自动安装 ----
+let cryptoJsShim;
+try { cryptoJsShim = require('./.crypto-js-shim.js'); } catch (_) { cryptoJsShim = {}; }
+
 const SHIMS = {
   omnibox_sdk: omniboxSdk,
   axios,
   spider_runner: spiderRunner,
   'omnibox-sdk': omniboxSdk,
+  'crypto-js': cryptoJsShim,
 };
+
+// 脚本依赖目录：Rust 传入绝对路径 SPIDER_DIR；兼容旧的 DATA_DIR 相对写法。
+const SPIDER_DIR = process.env.SPIDER_DIR || path.resolve(process.env.DATA_DIR || 'data', 'spiders');
+const NODE_MODULES = path.join(SPIDER_DIR, 'node_modules');
+
+// 白名单：脚本 require 到这些包且本机缺失时自动 npm install。
+// 只放行明确列出的包，避免脚本借机安装任意 npm 包（供应链风险）。
+const AUTO_INSTALL = {
+  cheerio: 'cheerio@1.0.0',
+  opencc: 'opencc-js',
+  'opencc-js': 'opencc-js',
+  'chinese-conv': 'chinese-conv',
+  '@node-rs/opencc': '@node-rs/opencc',
+};
+
+function resolveInstalled(name) {
+  try { return require.resolve(name, { paths: [SPIDER_DIR, NODE_MODULES] }); }
+  catch (_) { return null; }
+}
+
+// 同步安装：require 本身是同步的，Node 单线程下 execFileSync 天然避免并发安装冲突。
+// 仅在首次缺包时发生，装完后 resolveInstalled 命中，不会重复安装。
+function autoInstall(request) {
+  const spec = AUTO_INSTALL[request];
+  if (!spec || resolveInstalled(request)) return;
+
+  log('info', `检测到缺少依赖 "${request}"，正在自动安装 ${spec} ...`);
+  try {
+    fs.mkdirSync(SPIDER_DIR, { recursive: true });
+    const pkg = path.join(SPIDER_DIR, 'package.json');
+    if (!fs.existsSync(pkg)) fs.writeFileSync(pkg, '{"name":"filmbox-spiders","private":true}');
+
+    const cp = require('child_process');
+    const out = cp.execFileSync(
+      'npm',
+      ['install', spec, '--no-audit', '--no-fund', '--no-save', '--prefix', SPIDER_DIR],
+      { cwd: SPIDER_DIR, timeout: 150000, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8' }
+    );
+    // 刷新 require 的模块查找路径，让新装的包立即生效
+    require('module').Module._initPaths();
+    if (!resolveInstalled(request)) throw new Error('安装完成但仍未找到模块');
+    const tail = String(out || '').trim().split('\n').slice(-2).join(' ').slice(0, 160);
+    log('info', `依赖 "${request}" 自动安装成功${tail ? '：' + tail : ''}`);
+  } catch (e) {
+    const detail = String((e && (e.stderr || e.stdout)) || (e && e.message) || e).slice(0, 300);
+    log('error', `自动安装 "${request}" 失败：${detail}`);
+    throw new Error(`缺少依赖包 "${request}" 且自动安装失败（${detail}）。请检查服务端网络，或手动在 ${SPIDER_DIR} 执行 npm i ${spec}`);
+  }
+}
+
 const origLoad = Module._load;
 Module._load = function (request, parent, isMain) {
   if (Object.prototype.hasOwnProperty.call(SHIMS, request)) return SHIMS[request];
+  if (AUTO_INSTALL[request] && !resolveInstalled(request)) autoInstall(request);
   return origLoad.apply(this, arguments);
 };
 
