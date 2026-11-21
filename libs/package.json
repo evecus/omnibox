@@ -1,0 +1,13 @@
+{
+  "name": "omnibox-libs",
+  "private": true,
+  "description": "构建时依赖：打包 QuickJS 内嵌的纯 JS 库（cheerio/crypto-js），产物 libs/*.bundle.js 经 include_str! 编进二进制",
+  "scripts": {
+    "build": "esbuild entry-cheerio.js --bundle --format=cjs --platform=node --minify --external:node:stream --outfile=cheerio.bundle.js && esbuild entry-crypto-js.js --bundle --format=cjs --platform=node --minify --outfile=crypto-js.bundle.js"
+  },
+  "devDependencies": {
+    "cheerio": "^1.0.0",
+    "crypto-js": "^4.2.0",
+    "esbuild": "^0.24.0"
+  }
+}
