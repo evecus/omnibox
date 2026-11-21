@@ -2,6 +2,7 @@
 
 mod cache;
 mod douban;
+mod history;
 mod node;
 mod proxy;
 mod registry;
@@ -19,6 +20,7 @@ const INDEX_HTML: &str = include_str!("../static/index.html");
 const SEARCH_HTML: &str = include_str!("../static/search.html");
 const PLAY_HTML: &str = include_str!("../static/play.html");
 const SPIDERS_HTML: &str = include_str!("../static/spiders.html");
+const HISTORY_HTML: &str = include_str!("../static/history.html");
 const APP_CSS: &str = include_str!("../static/app.css");
 const MANIFEST: &str = include_str!("../static/manifest.json");
 const SW_JS: &str = include_str!("../static/sw.js");
@@ -35,6 +37,9 @@ async fn play_page() -> Html<&'static str> {
 }
 async fn spiders_page() -> Html<&'static str> {
     Html(SPIDERS_HTML)
+}
+async fn history_page() -> Html<&'static str> {
+    Html(HISTORY_HTML)
 }
 async fn css() -> impl IntoResponse {
     ([(axum::http::header::CONTENT_TYPE, "text/css; charset=utf-8")], APP_CSS)
@@ -65,6 +70,46 @@ async fn health() -> impl IntoResponse {
             "node_version": node_ver,
         }
     }))
+}
+
+// ===== 播放历史 API =====
+
+async fn api_history_list() -> axum::Json<serde_json::Value> {
+    axum::Json(json!({"ok": true, "list": history::list()}))
+}
+
+async fn api_history_add(Query(q): Query<BTreeMap<String, String>>) -> axum::Json<serde_json::Value> {
+    let src = q.get("src").cloned().unwrap_or_default();
+    let id = q.get("id").cloned().unwrap_or_default();
+    if src.is_empty() || id.is_empty() {
+        return axum::Json(json!({"ok": false, "error": "src/id 不能为空"}));
+    }
+    let name = q.get("name").cloned().unwrap_or_default();
+    let pic = q.get("pic").cloned().unwrap_or_default();
+    let ep_index = q.get("ep").and_then(|x| x.parse::<usize>().ok()).unwrap_or(0);
+    let ep_name = q.get("epname").cloned().unwrap_or_default();
+    match history::add(&src, &id, &name, &pic, ep_index, &ep_name) {
+        Ok(list) => axum::Json(json!({"ok": true, "list": list})),
+        Err(e) => axum::Json(json!({"ok": false, "error": e.to_string()})),
+    }
+}
+
+async fn api_history_remove(Query(q): Query<BTreeMap<String, String>>) -> axum::Json<serde_json::Value> {
+    let key = q.get("key").cloned().unwrap_or_default();
+    if key.is_empty() {
+        return axum::Json(json!({"ok": false, "error": "key 不能为空"}));
+    }
+    match history::remove(&key) {
+        Ok(list) => axum::Json(json!({"ok": true, "list": list})),
+        Err(e) => axum::Json(json!({"ok": false, "error": e.to_string()})),
+    }
+}
+
+async fn api_history_clear() -> axum::Json<serde_json::Value> {
+    match history::clear() {
+        Ok(_) => axum::Json(json!({"ok": true})),
+        Err(e) => axum::Json(json!({"ok": false, "error": e.to_string()})),
+    }
 }
 
 // ===== 脚本管理 API（口令保护）=====
@@ -196,6 +241,56 @@ async fn api_spiders_action(
     }
 }
 
+/// 解析命令行参数，返回 (端口, 数据目录)。
+/// 用法：omnibox [-p 端口] [-d 数据目录]
+/// 命令行优先级高于 PORT / DATA_DIR 环境变量。
+fn parse_args() -> (u16, String) {
+    let mut port: u16 = std::env::var("PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(3080);
+    let mut data_dir: String = std::env::var("DATA_DIR")
+        .ok()
+        .filter(|d| !d.is_empty())
+        .unwrap_or_else(|| "data".to_string());
+
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut i = 0;
+    while i < args.len() {
+        let a = &args[i];
+        if a == "-h" || a == "--help" {
+            println!("OmniBox — 豆瓣推荐 + 双引擎动态影视源\n\
+                用法: omnibox [选项]\n\
+                  -p, --port <端口>       监听端口（默认 3080）\n\
+                  -d, --data-dir <目录>   数据目录，存放脚本/播放历史/Node 依赖（默认 ./data）\n\
+                  -h, --help              显示帮助\n\
+                示例: omnibox -p 5050 -d /path/to/data");
+            std::process::exit(0);
+        } else if a == "-p" || a == "--port" {
+            if let Some(v) = args.get(i + 1) {
+                match v.parse::<u16>() {
+                    Ok(n) => port = n,
+                    Err(_) => eprintln!("警告: 无效端口 {v}，使用 {port}"),
+                }
+                i += 1;
+            }
+        } else if let Some(v) = a.strip_prefix("-p=").or_else(|| a.strip_prefix("--port=")) {
+            match v.parse::<u16>() {
+                Ok(n) => port = n,
+                Err(_) => eprintln!("警告: 无效端口 {v}，使用 {port}"),
+            }
+        } else if a == "-d" || a == "--data-dir" {
+            if let Some(v) = args.get(i + 1) {
+                data_dir = v.clone();
+                i += 1;
+            }
+        } else if let Some(v) = a.strip_prefix("-d=").or_else(|| a.strip_prefix("--data-dir=")) {
+            data_dir = v.to_string();
+        } else {
+            eprintln!("警告: 未知参数 {a}（用 -h 查看帮助）");
+        }
+        i += 1;
+    }
+    (port, data_dir)
+}
+
 #[tokio::main]
 async fn main() {
     let app = Router::new()
@@ -203,6 +298,7 @@ async fn main() {
         .route("/search.html", get(search_page))
         .route("/play.html", get(play_page))
         .route("/spiders.html", get(spiders_page))
+        .route("/history.html", get(history_page))
         .route("/app.css", get(css))
         .route("/manifest.json", get(manifest))
         .route("/sw.js", get(sw))
@@ -210,6 +306,10 @@ async fn main() {
         .route("/icon-192.png", get(icon192))
         .route("/icon-512.png", get(icon512))
         .route("/api/health", get(health))
+        .route("/api/history", get(api_history_list))
+        .route("/api/history/add", get(api_history_add))
+        .route("/api/history/remove", get(api_history_remove))
+        .route("/api/history/clear", get(api_history_clear))
         .route("/api/douban/home", get(douban::home))
         .route("/api/douban/category", get(douban::category))
         .route("/api/vod/search", get(vod::search_handler))
@@ -223,13 +323,17 @@ async fn main() {
         .route("/api/img", get(proxy::img))
         .route("/api/stream", get(proxy::stream));
 
-    let port: u16 = std::env::var("PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(3080);
+    let (port, data_dir) = parse_args();
+    // 数据目录（node 依赖与脚本/历史数据都在此）尽早设置，供 registry/node/history 读取
+    std::env::set_var("DATA_DIR", &data_dir);
+
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port))
         .await
         .expect("端口绑定失败");
 
     println!("OmniBox 已启动: http://0.0.0.0:{port}");
-    println!("  首页(豆瓣): /   搜索(脚本源): /search.html   脚本管理: /spiders.html");
+    println!("  数据目录: {data_dir}");
+    println!("  首页(豆瓣): /   搜索: /search.html   脚本管理: /spiders.html   播放历史: /history.html");
     let _ = registry::debug_dir();
     axum::serve(listener, app).await.expect("服务运行失败");
 }

@@ -14,6 +14,8 @@
   <div class="search-box">
     <input id="kw" placeholder="搜索影视名称" onkeydown="if(event.key==='Enter')doSearch()">
     <button onclick="doSearch()">搜索</button>
+    <button class="source-btn" onclick="location.href='/spiders.html'" title="源管理">源管理</button>
+    <button class="source-btn" onclick="location.href='/history.html'" title="播放历史">历史</button>
   </div>
 </header>
 <main>
@@ -127,6 +129,8 @@ async function loadDetail() {
      <b>主演</b> ${esc(v.vod_actor) || '—'}`;
   document.getElementById('v-content').textContent = v.vod_content || '';
   document.getElementById('v-pic').src = '/api/img?url=' + encodeURIComponent(v.vod_pic);
+  // 记录播放历史（进入详情即记录，集数在 playEp 里更新）
+  recordHistory(0, episodes[0] ? episodes[0].name : '');
 
   const epList = document.getElementById('ep-list');
   epList.innerHTML = episodes.map((e, i) =>
@@ -149,7 +153,21 @@ async function playEp(i) {
     console.error('play raw:', r);
     return;
   }
+  recordHistory(i, ep ? ep.name : '');
   startPlay(r.url, r.header);
+}
+
+// 记录/更新播放历史（失败不影响播放）
+function recordHistory(epIndex, epName) {
+  if (!vodId || !curSrc) return;
+  const titleEl = document.getElementById('v-name');
+  const name = titleEl ? titleEl.textContent : '';
+  const picEl = document.getElementById('v-pic');
+  const pic = picEl ? (picEl.src.split('/api/img?url=')[1] || '') : '';
+  const p = new URLSearchParams();
+  p.set('src', curSrc); p.set('id', vodId); p.set('name', name);
+  p.set('pic', decodeURIComponent(pic)); p.set('ep', String(epIndex)); p.set('epname', epName || '');
+  fetch('/api/history/add?' + p.toString()).catch(()=>{});
 }
 
 function startPlay(url, header) {

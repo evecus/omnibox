@@ -1,6 +1,6 @@
 [package]
 name = "omnibox"
-version = "0.2.0"
+version = "0.1.0"
 edition = "2021"
 description = "纯 Rust 影视站：豆瓣首页 + QuickJS 动态脚本源，内置网页面板"
 

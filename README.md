@@ -39,10 +39,17 @@
 
 ```bash
 cargo build --release
-./target/release/omnibox
+./target/release/omnibox -p 5050 -d /path
 ```
 
-默认监听 **3080** 端口，浏览器打开 `http://127.0.0.1:3080`（如需改端口：`PORT=其他端口 ./target/release/omnibox`）
+命令行参数（`-h` 查看帮助，命令行优先于同名环境变量）：
+
+| 参数 | 说明 | 默认 |
+|---|---|---|
+| `-p, --port <端口>` | 监听端口 | `3080` |
+| `-d, --data-dir <目录>` | 数据目录：脚本、播放历史、Node 运行依赖（`node_modules`）都放这里 | `./data` |
+
+例：`./target/release/omnibox -p 5050 -d /opt/omnibox-data`，浏览器打开 `http://127.0.0.1:5050`。不传参数则用默认端口 3080、默认目录 `./data`。
 
 1. 打开 `/spiders.html`，先选引擎，再三种方式之一导入：
    - **上传文件**：选择本地 `.js`；
@@ -51,6 +58,7 @@ cargo build --release
 2. 加密源（加密源、crypto-js 类）选 **Node.js**；普通源用默认 QuickJS。点「测试」验证。
 3. 首次测试 cheerio 类脚本时会自动安装依赖（约 8MB，日志可见进度，需服务端能访问 npm）；`crypto-js` 已内置 shim，无需安装。若网络不通，也可离线提前准备 `data/spiders/node_modules`，或运行一次 `./install-deps.sh` 预装（可选）。无需重启。
 4. 回到首页 `/`（豆瓣推荐），或 `/search.html?q=片名` 搜索；手机可「添加到主屏幕」安装为 PWA。
+5. 播放过的影片自动记录在 `/history.html`（各页面 header 的「历史」入口可进），点击可继续播放，支持删除单条或清空；历史存于数据目录 `spiders/history.json`。
 
 ## 脚本格式
 
@@ -79,9 +87,9 @@ module.exports = {
 
 | 变量 | 说明 |
 |---|---|
-| `PORT` | 监听端口，默认 3080 |
+| `PORT` | 监听端口（兼容兜底，推荐用 `-p`） |
 | `ADMIN_TOKEN` | 脚本管理接口口令（建议局域网使用时设置） |
-| `DATA_DIR` | 数据目录，默认 `./data`（脚本存于其下 `spiders/`） |
+| `DATA_DIR` | 数据目录（兼容兜底，推荐用 `-d`）；脚本/历史/Node 依赖存于其下 `spiders/` |
 | `SITE_API` | 传给脚本 `process.env.SITE_API`（通用采集站模板用） |
 | `DANMU_API` | 传给脚本 `process.env.DANMU_API`（弹幕匹配用） |
 
