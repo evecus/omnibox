@@ -45,8 +45,18 @@ cargo build --release
 |---|---|---|
 | `-p, --port <端口>` | 监听端口 | `3080` |
 | `-d, --data-dir <目录>` | 数据目录：脚本、播放历史都放这里 | `./data` |
+| `-auth, --auth <密码>` | 启用访问鉴权，未登录无法访问任何页面/接口 | 不启用 |
 
-例：`./target/release/omnibox -p 5050 -d /opt/omnibox-data`，浏览器打开 `http://127.0.0.1:5050`。不传参数则用默认端口 3080、默认目录 `./data`。
+例：`./target/release/omnibox -p 5050 -d /opt/omnibox-data -auth mypassword`，浏览器打开 `http://127.0.0.1:5050`。不传参数则用默认端口 3080、默认目录 `./data`、不启用鉴权。
+
+### 访问鉴权与防爆破
+
+加 `-auth <密码>` 后所有页面和 API 都需要登录（`/login.html` 登录页与登录接口、静态图标资源除外）：
+
+- 会话：登录成功种 `omni_session` Cookie（HttpOnly + SameSite=Lax），内存存储、7 天有效，重启后需重新登录。
+- 防爆破：同一 IP 10 分钟内连续错 5 次即锁定 30 秒，之后每多错一次锁定时间翻倍，封顶 15 分钟；登录成功即清零。
+- 未登录访问页面会 302 跳转 `/login.html`（登录后自动回跳），访问 `/api/*` 返回 401 JSON。
+- 也可用环境变量 `AUTH` 设置密码（命令行 `-auth` 优先）。
 
 1. 打开 `/spiders.html`，先选引擎，再三种方式之一导入：
    - **上传文件**：选择本地 `.js`；
@@ -92,6 +102,7 @@ module.exports = {
 | 变量 | 说明 |
 |---|---|
 | `PORT` | 监听端口（兼容兜底，推荐用 `-p`） |
+| `AUTH` | 访问鉴权密码（兼容兜底，推荐用 `-auth`）；不设置则不启用鉴权 |
 | `ADMIN_TOKEN` | 脚本管理接口口令（建议局域网使用时设置） |
 | `DATA_DIR` | 数据目录（兼容兜底，推荐用 `-d`）；脚本/历史存于其下 `spiders/` |
 | `SITE_API` | 传给脚本 `process.env.SITE_API`（通用采集站模板用） |

@@ -1,6 +1,6 @@
 // OmniBox Service Worker：HTML/API network-first，静态资源 cache-first
-const CACHE = 'omnibox-v3';
-const SHELL = ['/', '/search.html', '/play.html', '/spiders.html', '/history.html', '/app.css', '/manifest.json', '/hls.min.js', '/icon-192.png', '/icon-512.png'];
+const CACHE = 'omnibox-v4';
+const SHELL = ['/', '/search.html', '/play.html', '/spiders.html', '/history.html', '/app.css', '/manifest.json', '/hls.min.js', '/icon.svg', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png'];
 const HTML_PAGES = ['/', '/search.html', '/play.html', '/spiders.html', '/history.html'];
 
 self.addEventListener('install', e => {

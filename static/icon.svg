@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1a202b"/>
+      <stop offset="0.55" stop-color="#0d1117"/>
+      <stop offset="1" stop-color="#090c10"/>
+    </linearGradient>
+    <linearGradient id="ac" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f78166"/>
+      <stop offset="1" stop-color="#d29922"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.45" r="0.65">
+      <stop offset="0" stop-color="#f78166" stop-opacity="0.16"/>
+      <stop offset="0.6" stop-color="#f78166" stop-opacity="0.06"/>
+      <stop offset="1" stop-color="#f78166" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- 底板：圆角方形，深色渐变 -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="112" fill="url(#glow)"/>
+
+  <!-- 左侧胶片齿孔（影视元素） -->
+  <g fill="#8b949e" opacity="0.5">
+    <rect x="86" y="146" width="26" height="34" rx="9"/>
+    <rect x="86" y="200" width="26" height="34" rx="9"/>
+    <rect x="86" y="254" width="26" height="34" rx="9"/>
+    <rect x="86" y="308" width="26" height="34" rx="9"/>
+    <rect x="86" y="362" width="26" height="34" rx="9"/>
+  </g>
+
+  <!-- 播放盒（Box） -->
+  <rect x="150" y="158" width="252" height="196" rx="40" fill="none" stroke="url(#ac)" stroke-width="20"/>
+  <!-- 播放三角 -->
+  <path d="M238 204 L318 256 L238 308 Z" fill="url(#ac)" stroke="url(#ac)" stroke-width="20" stroke-linejoin="round"/>
+</svg>
