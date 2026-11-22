@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<title>OmniBox · 播放历史</title>
+<link rel="stylesheet" href="/app.css">
+<link rel="manifest" href="/manifest.json">
+</head>
+<body>
+<header>
+  <div class="logo" onclick="location.href='/'" style="cursor:pointer">OmniBox<span>播放历史</span></div>
+  <div class="search-box"><button onclick="location.href='/spiders.html'">源管理</button></div>
+</header>
+<main>
+  <div class="page-title">播放历史 <em id="cnt"></em></div>
+  <div class="panel" style="margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <span class="hint" style="margin:0">点击卡片从上次位置继续播放</span>
+    <button id="clear-btn" onclick="clearAll()" style="margin-left:auto">清空历史</button>
+  </div>
+  <div class="grid" id="grid"></div>
+  <div class="loading" id="loading">加载中…</div>
+</main>
+
+<script>
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function fmtTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts * 1000);
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+let SRC_NAMES = {};
+async function loadSources(){
+  const r = await fetch('/api/spiders').then(x=>x.json()).catch(()=>null);
+  SRC_NAMES = {};
+  ((r && r.list) || []).forEach(s => { SRC_NAMES[s.id] = s.display_name || s.name || s.id; });
+}
+
+async function load(){
+  await loadSources();
+  const r = await fetch('/api/history').then(x=>x.json()).catch(()=>null);
+  document.getElementById('loading').style.display = 'none';
+  const list = (r && r.list) || [];
+  document.getElementById('cnt').textContent = list.length ? `（${list.length}）` : '';
+  const grid = document.getElementById('grid');
+  document.getElementById('clear-btn').style.display = list.length ? '' : 'none';
+  if (!list.length) {
+    grid.innerHTML = '<div class="empty" style="grid-column:1/-1">暂无播放历史 · <a href="/" style="color:var(--accent)">去首页</a></div>';
+    return;
+  }
+  grid.innerHTML = list.map(h => {
+    const src = h.src || '';
+    const tag = SRC_NAMES[src] || src;
+    const ep = h.ep_name ? ` · ${esc(h.ep_name)}` : '';
+    return `
+    <div class="card">
+      <div class="poster" onclick="play('${esc(h.key)}','${esc(h.src)}','${esc(h.vod_id)}')">
+        ${h.pic ? `<img loading="lazy" src="/api/img?url=${encodeURIComponent(h.pic)}" alt="" onerror="this.style.visibility='hidden'">` : '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;opacity:.4">▶</div>'}
+        <span class="score" style="top:4px;right:4px;background:#2563eb">${esc(tag)}</span>
+      </div>
+      <div class="title" title="${esc(h.name)}" onclick="play('${esc(h.key)}','${esc(h.src)}','${esc(h.vod_id)}')">${esc(h.name) || '未命名'}</div>
+      <div class="subtitle">${fmtTime(h.played_at)}${ep}</div>
+      <button class="del-btn" onclick="remove('${esc(h.key)}')" title="删除这条记录">删除</button>
+    </div>`;
+  }).join('');
+}
+
+function play(key, src, id) {
+  // 记录播放页返回时继续观看的位置（通过 URL 传 ep 提示）
+  location.href = '/play.html?src=' + encodeURIComponent(src) + '&id=' + encodeURIComponent(id);
+}
+async function remove(key) {
+  await fetch('/api/history/remove?key=' + encodeURIComponent(key)).catch(()=>{});
+  load();
+}
+async function clearAll() {
+  if (!confirm('确认清空全部播放历史？')) return;
+  await fetch('/api/history/clear').catch(()=>{});
+  load();
+}
+
+load();
+</script>
+<script>
+if ('serviceWorker' in navigator) { window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(()=>{})); }
+</script>
+</body>
+</html>

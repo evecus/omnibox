@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<title>OmniBox · 脚本管理</title>
+<link rel="stylesheet" href="/app.css">
+<link rel="manifest" href="/manifest.json">
+</head>
+<body>
+<header>
+  <div class="logo" onclick="location.href='/'" style="cursor:pointer">OmniBox<span>脚本管理</span></div>
+  <div class="search-box"><button onclick="location.href='/search.html'">去搜索</button><button class="source-btn" onclick="location.href='/history.html'" title="播放历史">历史</button></div>
+</header>
+<main>
+  <div class="page-title">影视源脚本</div>
+  <p class="tip">导入 OmniBox 格式的 .js 爬虫脚本（导出 home/category/search/detail/play）。脚本由内嵌的 QuickJS 运行，已内置 crypto / crypto-js / cheerio / axios 等常用 Node 模块的兼容实现，无需安装 Node.js。脚本保存在本机 data/spiders/。</p>
+
+  <div class="panel">
+    <h3>① 上传脚本文件</h3>
+    <div class="upload-row">
+      <input type="file" id="file">
+      <button onclick="uploadFile()">上传并启用</button>
+    </div>
+    <p class="hint">若文件选择器不显示 .js，可切到下方「粘贴源码」方式。</p>
+  </div>
+
+  <div class="panel">
+    <h3>② 粘贴 JS 源码</h3>
+    <textarea id="paste" rows="5" placeholder="把 .js 文件内容整段粘贴到这里…" style="width:100%;box-sizing:border-box;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:8px;padding:10px;font-family:monospace;font-size:12px"></textarea>
+    <div class="upload-row" style="margin-top:8px">
+      <input type="text" id="paste-name" placeholder="脚本名（可选，如 我的影视.js）" style="flex:1">
+      <button onclick="pasteSource()">导入并启用</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>③ 从 URL 拉取</h3>
+    <div class="upload-row">
+      <input type="url" id="url" placeholder="https://.../某某影视.js" style="flex:1">
+      <button onclick="pullUrl()">拉取</button>
+    </div>
+    <p class="hint">仅支持 http/https 公网地址；若拉取失败可改用「粘贴源码」。</p>
+  </div>
+
+  <div class="panel">
+    <h3>④ 已导入脚本 <span id="cnt" class="muted"></span></h3>
+    <div id="list" class="spider-list">加载中…</div>
+  </div>
+
+  <div class="panel">
+    <h3>测试日志</h3>
+    <pre id="log" class="log">（点击脚本「测试」后显示 search 返回结果）</pre>
+  </div>
+
+  <div class="panel">
+    <h3>口令</h3>
+    <div class="upload-row">
+      <input type="password" id="token" placeholder="ADMIN_TOKEN（如服务端已设置）" style="flex:1">
+      <button onclick="saveToken()">保存</button>
+    </div>
+    <p class="hint">口令保存在本机浏览器，仅用于访问管理接口。</p>
+  </div>
+</main>
+
+<script>
+let TOKEN = localStorage.getItem('fb_admin_token') || '';
+function saveToken(){ TOKEN = document.getElementById('token').value.trim(); localStorage.setItem('fb_admin_token', TOKEN); load(); }
+function auth(){ return TOKEN ? '&token=' + encodeURIComponent(TOKEN) : ''; }
+function esc(s){ return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+async function load(){
+  const r = await fetch('/api/spiders' + (TOKEN ? '?token=' + encodeURIComponent(TOKEN) : '')).then(x=>x.json()).catch(()=>null);
+  if(!r || !r.ok){ document.getElementById('list').innerHTML = '<div class="empty">' + esc((r&&r.error)||'加载失败（检查口令）') + '</div>'; return; }
+  const list = r.list || [];
+  document.getElementById('cnt').textContent = '共 ' + list.length + ' 个';
+  if(!list.length){ document.getElementById('list').innerHTML = '<div class="empty">尚未导入脚本，请用上方方式导入</div>'; return; }
+  document.getElementById('list').innerHTML = list.map(s=>{
+    const name = s.display_name || s.name || s.id;
+    const status = s.last_error ? '<span class="badge err">失败</span>' : (s.last_ok ? '<span class="badge ok">正常</span>' : '<span class="badge">未测</span>');
+    return `<div class="spider-item">
+      <div class="si-head">
+        <b>${esc(name)}</b> ${s.enabled?'<span class="badge on">启用</span>':'<span class="badge off">禁用</span>'} ${status}
+      </div>
+      <div class="si-meta">id: ${esc(s.id)} · 来源: ${s.origin==='url'?'URL':'上传'}${s.url?' · '+esc(s.url.slice(0,60)):''}</div>
+      ${s.last_error?`<div class="si-err">${esc(s.last_error)}</div>`:''}
+      <div class="si-actions">
+        <button onclick="toggle('${esc(s.id)}',${s.enabled?0:1})">${s.enabled?'禁用':'启用'}</button>
+        <button onclick="test('${esc(s.id)}')">测试</button>
+        <button onclick="viewSource('${esc(s.id)}')">源码</button>
+        <button class="danger" onclick="remove('${esc(s.id)}')">删除</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function uploadFile(){
+  const f = document.getElementById('file').files[0];
+  if(!f){ alert('请先选择 js 文件；若选不到，请用「粘贴源码」方式'); return; }
+  const fd = new FormData(); fd.append('file', f, f.name);
+  const p = new URLSearchParams(); if (TOKEN) p.set('token', TOKEN); 
+  const r = await fetch('/api/spiders/upload?' + p.toString(), {method:'POST', body:fd}).then(x=>x.json()).catch(()=>null);
+  alert(r && r.ok ? '已导入：' + (r.spider.display_name || r.spider.name) : '失败：' + ((r&&r.error)||'网络错误'));
+  load();
+}
+
+async function pasteSource(){
+  const src = document.getElementById('paste').value;
+  const name = document.getElementById('paste-name').value.trim() || 'pasted.js';
+  if(!src.trim()){ alert('请先粘贴 JS 源码'); return; }
+  const body = { name, source: src };
+  if (TOKEN) body.token = TOKEN;
+  const r = await fetch('/api/spiders/paste', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)}).then(x=>x.json()).catch(e=>({error:'网络错误 '+e}));
+  alert(r && r.ok ? '已导入：' + (r.spider.display_name || r.spider.name) : '失败：' + ((r&&r.error)||'网络错误'));
+  if (r && r.ok) { document.getElementById('paste').value = ''; }
+  load();
+}
+
+async function pullUrl(){
+  const url = document.getElementById('url').value.trim();
+  if(!url){ alert('请填写 URL'); return; }
+  const params = new URLSearchParams();
+  params.set('url', url);
+  if (TOKEN) params.set('token', TOKEN);
+  const r = await fetch('/api/spiders/url?' + params.toString(), {method:'POST'}).then(x=>x.json()).catch(e=>({error:'网络错误 '+e}));
+  alert(r && r.ok ? '已拉取：' + (r.spider.display_name || r.spider.name) : '失败：' + ((r&&r.error)||'网络错误'));
+  load();
+}
+
+async function toggle(id, on){ await fetch(`/api/spiders/${encodeURIComponent(id)}/toggle?enabled=${on}`+auth()); load(); }
+async function remove(id){ if(!confirm('确认删除该脚本？')) return; await fetch(`/api/spiders/${encodeURIComponent(id)}/remove`+auth()); load(); }
+async function test(id){
+  const box = document.getElementById('log'); box.textContent = '测试中…';
+  const r = await fetch(`/api/spiders/${encodeURIComponent(id)}/test?kw=`+encodeURIComponent('测试')+auth()).then(x=>x.json()).catch(()=>null);
+  box.textContent = JSON.stringify(r, null, 2); load();
+}
+async function viewSource(id){
+  const r = await fetch(`/api/spiders/${encodeURIComponent(id)}/source`+auth()).then(x=>x.json()).catch(()=>null);
+  document.getElementById('log').textContent = r && r.source ? r.source : JSON.stringify(r, null, 2);
+}
+load();
+</script>
+<script>
+if ('serviceWorker' in navigator) { window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(()=>{})); }
+</script>
+</body>
+</html>
