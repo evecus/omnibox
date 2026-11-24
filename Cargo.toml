@@ -29,5 +29,4 @@ ego-tree = "0.11.1"
 [profile.release]
 opt-level = 2
 strip = true
-panic = "abort"
 debug = false
